@@ -2,16 +2,13 @@
 
 enum custom_keycodes {
     VISUAL = SAFE_RANGE,
-    VI_RSET,
-    VI_DEL,
+    VI_NRMH,
 };
 
 #define _QWERTY 0
 #define _SPECIAL 1
-#define _MOVE 2
 
 #define SPECIAL MO(_SPECIAL)
-#define MOVE MO(_MOVE)
 
 // BCK_C = Bracket round
 #define BCK_R_L LSFT(KC_9)
@@ -49,7 +46,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     KC_TAB , KC_Q,    KC_W,    KC_E,    KC_R,    KC_T,    KC_MINS,                        KC_EQL , KC_Y,    KC_U,    KC_I,    KC_O,    KC_P,    _______, \
     KC_CAPS, KC_A,    KC_S,    KC_D,    KC_F,    KC_G,    KC_DEL ,                        KC_BSPC, KC_H,    KC_J,    KC_K,    KC_L,    KC_SCLN, KC_QUOT, \
     KC_LSFT, KC_Z,    KC_X,    KC_C,    KC_V,    KC_B,    KC_SPC ,                        KC_ENT , KC_N,    KC_M,    KC_COMM, KC_DOT,  KC_SLSH, KC_RSFT, \
-    KC_LCTL, _______, _______, KC_LALT,          MOVE   , KC_SPC ,KC_ESC,         KC_LCTL,KC_ENT , SPECIAL,          KC_RALT, _______, _______, KC_RGHT  \
+    KC_LCTL, _______, _______, KC_LALT,          VI_NRMH, KC_SPC ,KC_ESC,         KC_LCTL,KC_ENT , SPECIAL,          KC_RALT, _______, _______, KC_RGHT  \
   ),
 
   [_SPECIAL] = LAYOUT(
@@ -60,6 +57,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     _______, _______, _______, _______,          _______,_______,_______,       _______,_______, _______,          _______, _______, _______, _______  \
   ),
 
+  /*
   [_MOVE] = LAYOUT(
     _______, _______, _______, _______, _______, _______,_______,                       _______, _______, _______, _______, _______, KC_HOME, _______, \
     _______, _______, MV_R_W , KC_END , _______, _______,_______,                       _______, _______, _______, KC_PGUP, _______, _______, _______, \
@@ -67,76 +65,181 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     _______, _______, KC_DEL , _______, VISUAL , MV_L_W ,_______,                       _______, _______, KC_PGDN, _______, _______, _______, _______, \
     _______, _______, _______, _______,          _______,_______,VI_RSET,       _______,_______, _______,          _______, _______, _______, _______  \
   )
+  */
 };
 
 enum VI_MODE {
-    MODE_HOLD,
+    MODE_INSERT,
     MODE_VISUAL,
     MODE_NORMAL,
 };
 
-static enum VI_MODE current_mode = MODE_HOLD;
+static enum VI_MODE current_mode = MODE_INSERT;
+static bool normal_mode_held = false;
 
 void switch_mode(enum VI_MODE mode) {
     switch(mode) {
-        case MODE_HOLD:
+        case MODE_INSERT:
             unregister_code(KC_LSFT);
-            layer_off(_MOVE);
             break;
         case MODE_VISUAL:
             register_code(KC_LSFT);
-            layer_on(_MOVE);
             break;
         case MODE_NORMAL:
             unregister_code(KC_LSFT);
-            layer_on(_MOVE);
             break;
     }
     current_mode = mode;
 }
 
-bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+enum VI_ACTION {
+    VIA_NONE,
+    VIA_DELETE,
+    VIA_CHANGE,
+};
+
+static enum VI_ACTION last_action = VIA_NONE;
+
+uint16_t vi_translate_motion(uint16_t keycode) {
     switch (keycode) {
-        case MOVE:
+        case KC_N:
+        case LCTL(KC_D):
+            return KC_PGDN;
+        case KC_P:
+        case LCTL(KC_U):
+            return KC_PGUP;
+        case KC_H:
+            return KC_LEFT;
+        case KC_J:
+            return KC_DOWN;
+        case KC_K:
+            return KC_UP;
+        case KC_L:
+            return KC_RGHT;
+        case KC_0:
+        case KC_UNDERSCORE:
+            return KC_HOME;
+        case KC_E:
+        case KC_DOLLAR:
+            return KC_END;
+        case KC_W:
+            return MV_R_W;
+        case KC_B:
+            return MV_L_W;
+        default:
+            return 0;
+    }
+}
+
+bool vi_mode_common(uint16_t keycode, keyrecord_t *record) {
+
+    uint16_t translated = vi_translate_motion(keycode);
+    if(!translated) {
+        return true;
+    }
+
+    switch (last_action) {
+        case VIA_CHANGE:
+            if (!record->event.pressed) return false;
+            switch_mode(MODE_INSERT);
+            // Fall through intended here!
+        case VIA_DELETE:
+            if (!record->event.pressed) return false;
+            register_code(KC_LSFT);
+            tap_code16(translated);
+            unregister_code(KC_LSFT);
+            tap_code(KC_DELETE);
+            last_action = VIA_NONE;
+            break;
+
+        case VIA_NONE:
             if (record->event.pressed) {
-                layer_on(_MOVE);
-            } else if(current_mode == MODE_HOLD) {
-                layer_off(_MOVE);
+                register_code16(translated);
+            } else {
+                unregister_code16(translated);
             }
+            break;
+    }
+
+    return false;
+}
+
+bool vi_mode_normal(uint16_t keycode, keyrecord_t *record) {
+    switch (keycode) {
+        case KC_V:
+            if (!record->event.pressed) return false;
+            switch_mode(MODE_VISUAL);
             return false;
-        case VI_DEL:
-            if (record->event.pressed) {
-                switch(current_mode) {
-                    case MODE_VISUAL:
-                        tap_code(KC_DEL);
-                        switch_mode(MODE_NORMAL);
-                        break;
-                    case MODE_NORMAL:
-                        break;
-                    case MODE_HOLD:
-                        break;
-                }
-            }
+        case KC_ESC:
+            if (!record->event.pressed) return false;
+            last_action = VIA_NONE;
             return false;
-        case VISUAL:
-            if (record->event.pressed) {
-                switch_mode(MODE_VISUAL);
-            }
+        case KC_I:
+            if (!record->event.pressed) return false;
+            switch_mode(MODE_INSERT);
             return false;
-        case VI_RSET:
-            if (record->event.pressed) {
-                switch(current_mode) {
-                    case MODE_VISUAL:
-                        switch_mode(MODE_NORMAL);
-                        break;
-                    case MODE_NORMAL:
-                        switch_mode(MODE_HOLD);
-                        break;
-                    case MODE_HOLD:
-                        break;
-                }
-            }
+        case KC_X:
+            if (!record->event.pressed) return false;
+            tap_code(KC_DEL);
+            return false;
+        case KC_C:
+            if (!record->event.pressed) return false;
+            last_action = VIA_CHANGE;
+            return false;
+        case KC_D:
+            if (!record->event.pressed) return false;
+            last_action = VIA_DELETE;
+            return false;
+        case KC_RALT:
+        case KC_LALT:
+            if (!record->event.pressed) return false;
+            switch_mode(MODE_NORMAL);
             return false;
     }
     return true;
+}
+
+bool vi_mode_visual(uint16_t keycode, keyrecord_t *record) {
+    switch (keycode) {
+        case KC_D:
+            if (!record->event.pressed) return false;
+            tap_code(KC_DEL);
+            switch_mode(MODE_NORMAL);
+            return false;
+        case KC_C:
+            if (!record->event.pressed) return false;
+            tap_code(KC_DEL);
+            switch_mode(MODE_INSERT);
+            return false;
+        case KC_X:
+            if (!record->event.pressed) return false;
+            tap_code(KC_DEL);
+            switch_mode(MODE_NORMAL);
+            return false;
+        case KC_ESC:
+            if (!record->event.pressed) return false;
+            switch_mode(MODE_NORMAL);
+            return false;
+    }
+    return true;
+}
+
+
+bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+    switch (keycode) {
+        case VI_NRMH:
+            if (record->event.pressed) {
+                normal_mode_held = true;
+            } else {
+                normal_mode_held = false;
+            }
+            return false;
+    }
+    if (current_mode == MODE_VISUAL) {
+        return vi_mode_visual(keycode, record) && vi_mode_common(keycode, record) && false;
+    } else if (current_mode == MODE_NORMAL || normal_mode_held) {
+        return vi_mode_normal(keycode, record) && vi_mode_common(keycode, record) && false;
+    } else {
+        return true;
+    }
 }
