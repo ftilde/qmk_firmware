@@ -7,8 +7,10 @@ enum custom_keycodes {
 
 #define _QWERTY 0
 #define _SPECIAL 1
+#define _NUMS 2
 
 #define SPECIAL MO(_SPECIAL)
+#define NUMS MO(_NUMS)
 
 // BCK_C = Bracket round
 #define BCK_R_L LSFT(KC_9)
@@ -46,7 +48,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     KC_TAB , KC_Q,    KC_W,    KC_E,    KC_R,    KC_T,    KC_MINS,                        KC_EQL , KC_Y,    KC_U,    KC_I,    KC_O,    KC_P,    _______, \
     KC_CAPS, KC_A,    KC_S,    KC_D,    KC_F,    KC_G,    KC_DEL ,                        KC_BSPC, KC_H,    KC_J,    KC_K,    KC_L,    KC_SCLN, KC_QUOT, \
     KC_LSFT, KC_Z,    KC_X,    KC_C,    KC_V,    KC_B,    KC_SPC ,                        KC_ENT , KC_N,    KC_M,    KC_COMM, KC_DOT,  KC_SLSH, KC_RSFT, \
-    KC_LCTL, _______, _______, KC_LALT,          VI_NRMH, KC_SPC ,KC_ESC,         KC_LCTL,KC_ENT , SPECIAL,          KC_RALT, _______, _______, KC_RGHT  \
+    KC_LCTL, _______, NUMS   , KC_LALT,          VI_NRMH, KC_SPC ,KC_ESC,         KC_LCTL,KC_ENT , SPECIAL,          KC_RALT, _______, _______, KC_RGHT  \
   ),
 
   [_SPECIAL] = LAYOUT(
@@ -54,18 +56,16 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     _______, _______, KC_AT  , KC_HASH, KC_DLR , KC_PERC,_______,                       _______, KC_TILD, KC_AMPR, KC_ASTR, KC_CIRC, _______, _______, \
     _______, BCK_A_L, BCK_S_L, BCK_C_L, BCK_R_L, KC_BSLS,_______,                       _______, KC_PIPE, BCK_R_R, BCK_C_R, BCK_S_R, BCK_A_R, _______, \
     _______, KC_GRV , KC_EXLM, KC_UNDS, KC_MINS, KC_SCLN,_______,                       _______, KC_COLN, KC_PLUS, KC_EQL , KC_QUES, KC_SLSH, _______, \
-    _______, _______, _______, _______,          _______,_______,_______,       _______,_______, _______,          _______, _______, _______, _______  \
+    _______, _______, _______, _______,          NUMS   ,_______,_______,       _______,_______, _______,          _______, _______, _______, _______  \
   ),
 
-  /*
-  [_MOVE] = LAYOUT(
-    _______, _______, _______, _______, _______, _______,_______,                       _______, _______, _______, _______, _______, KC_HOME, _______, \
-    _______, _______, MV_R_W , KC_END , _______, _______,_______,                       _______, _______, _______, KC_PGUP, _______, _______, _______, \
-    _______, _______, _______, VI_DEL , _______, _______,_______,                       _______, KC_LEFT, KC_DOWN, KC_UP  , KC_RGHT, KC_END , _______, \
-    _______, _______, KC_DEL , _______, VISUAL , MV_L_W ,_______,                       _______, _______, KC_PGDN, _______, _______, _______, _______, \
-    _______, _______, _______, _______,          _______,_______,VI_RSET,       _______,_______, _______,          _______, _______, _______, _______  \
-  )
-  */
+  [_NUMS] = LAYOUT(
+    _______, _______, _______, _______, _______, _______,_______,                       _______, _______, _______, _______, _______, _______, _______, \
+    _______, KC_F1  , KC_F2  , KC_F3  , KC_F4  , KC_F5  ,_______,                       _______, KC_F6  , KC_F7  , KC_F8  , KC_F9  , KC_F10 , KC_F11 , \
+    _______, KC_1   , KC_2   , KC_3   , KC_4   , KC_5   ,_______,                       _______, KC_6   , KC_7   , KC_8   , KC_9   , KC_0   , KC_F12 , \
+    _______, _______, _______, _______, _______, _______,_______,                       _______, _______, _______, _______, _______, _______, _______, \
+    _______, _______, _______, _______,          _______,_______,_______,       _______,_______, _______,          _______, _______, _______, _______  \
+  ),
 };
 
 enum VI_MODE {
@@ -234,6 +234,17 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
                 normal_mode_held = false;
             }
             return false;
+        case SPECIAL:
+            if(record->event.pressed) {
+                if (normal_mode_held) {
+                    layer_on(_NUMS);
+                    normal_mode_held = false;
+                    return false;
+                }
+            } else {
+                layer_off(_NUMS);
+            }
+            return true;
     }
     if (current_mode == MODE_VISUAL) {
         return vi_mode_visual(keycode, record) && vi_mode_common(keycode, record) && false;
