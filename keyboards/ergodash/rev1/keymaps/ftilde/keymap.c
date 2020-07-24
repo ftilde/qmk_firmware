@@ -78,17 +78,6 @@ static enum VI_MODE current_mode = MODE_INSERT;
 static bool normal_mode_held = false;
 
 void switch_mode(enum VI_MODE mode) {
-    switch(mode) {
-        case MODE_INSERT:
-            unregister_code(KC_LSFT);
-            break;
-        case MODE_VISUAL:
-            register_code(KC_LSFT);
-            break;
-        case MODE_NORMAL:
-            unregister_code(KC_LSFT);
-            break;
-    }
     current_mode = mode;
 }
 
@@ -96,7 +85,26 @@ enum VI_ACTION {
     VIA_NONE,
     VIA_DELETE,
     VIA_CHANGE,
+    VIA_COPY,
 };
+
+void send_hex(uint32_t num, uint32_t width) {
+    tap_code(KC_0);
+    tap_code(KC_X);
+    for(int i=0; i< width/4; i++) {
+        uint16_t val = (num >> (width - 4)) & 0xf;
+        if(val == 0) {
+            tap_code(KC_0);
+        } else if(val < 10) {
+            tap_code(KC_1 + val - 1);
+        } else {
+            tap_code(KC_A + val - 10);
+        }
+        num <<= 4;
+    }
+    tap_code(KC_SPACE);
+}
+
 
 static enum VI_ACTION last_action = VIA_NONE;
 
@@ -126,15 +134,20 @@ uint16_t vi_translate_motion(uint16_t keycode) {
             return MV_R_W;
         case KC_B:
             return MV_L_W;
+
+        // Swallow the rest
         default:
             return 0;
     }
 }
 
 bool vi_mode_common(uint16_t keycode, keyrecord_t *record) {
-
     uint16_t translated = vi_translate_motion(keycode);
+
     if(!translated) {
+        if(!IS_MOD(keycode)) {
+            last_action = VIA_NONE;
+        }
         return true;
     }
 
@@ -148,7 +161,16 @@ bool vi_mode_common(uint16_t keycode, keyrecord_t *record) {
             register_code(KC_LSFT);
             tap_code16(translated);
             unregister_code(KC_LSFT);
-            tap_code(KC_DELETE);
+            tap_code16(LCTL(KC_X));
+            last_action = VIA_NONE;
+            break;
+
+        case VIA_COPY:
+            if (!record->event.pressed) return false;
+            register_code(KC_LSFT);
+            tap_code16(translated);
+            unregister_code(KC_LSFT);
+            tap_code16(LCTL(KC_C));
             last_action = VIA_NONE;
             break;
 
@@ -180,7 +202,12 @@ bool vi_mode_normal(uint16_t keycode, keyrecord_t *record) {
             return false;
         case KC_X:
             if (!record->event.pressed) return false;
-            tap_code(KC_DEL);
+            tap_code16(KC_DELETE);
+            return false;
+        case KC_P:
+        case LSFT(KC_P):
+            if (!record->event.pressed) return false;
+            tap_code16(LCTL(KC_V));
             return false;
         case KC_C:
             if (!record->event.pressed) return false;
@@ -189,6 +216,10 @@ bool vi_mode_normal(uint16_t keycode, keyrecord_t *record) {
         case KC_D:
             if (!record->event.pressed) return false;
             last_action = VIA_DELETE;
+            return false;
+        case KC_Y:
+            if (!record->event.pressed) return false;
+            last_action = VIA_COPY;
             return false;
         case KC_RALT:
         case KC_LALT:
@@ -203,17 +234,22 @@ bool vi_mode_visual(uint16_t keycode, keyrecord_t *record) {
     switch (keycode) {
         case KC_D:
             if (!record->event.pressed) return false;
-            tap_code(KC_DEL);
+            tap_code16(LCTL(KC_X));
             switch_mode(MODE_NORMAL);
             return false;
         case KC_C:
             if (!record->event.pressed) return false;
-            tap_code(KC_DEL);
+            tap_code16(LCTL(KC_X));
             switch_mode(MODE_INSERT);
             return false;
         case KC_X:
             if (!record->event.pressed) return false;
-            tap_code(KC_DEL);
+            tap_code16(LCTL(KC_X));
+            switch_mode(MODE_NORMAL);
+            return false;
+        case KC_Y:
+            if (!record->event.pressed) return false;
+            tap_code16(LCTL(KC_C));
             switch_mode(MODE_NORMAL);
             return false;
         case KC_ESC:
@@ -224,8 +260,16 @@ bool vi_mode_visual(uint16_t keycode, keyrecord_t *record) {
     return true;
 }
 
-
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+    uint8_t mods = get_mods();
+    bool ismod = IS_MOD(keycode);
+    if(!ismod) {
+        keycode |= ((uint16_t)mods)<< 8;
+    }
+    clear_mods();
+
+    bool res = true;
+
     switch (keycode) {
         case VI_NRMH:
             if (record->event.pressed) {
@@ -233,24 +277,34 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
             } else {
                 normal_mode_held = false;
             }
-            return false;
+            res = false;
+            goto end;
         case SPECIAL:
             if(record->event.pressed) {
                 if (normal_mode_held) {
                     layer_on(_NUMS);
                     normal_mode_held = false;
-                    return false;
+                    res = false;
+                    goto end;
                 }
             } else {
                 layer_off(_NUMS);
             }
-            return true;
+            res = true;
+            goto end;
     }
     if (current_mode == MODE_VISUAL) {
-        return vi_mode_visual(keycode, record) && vi_mode_common(keycode, record) && false;
+        res = vi_mode_visual(keycode, record);
+        if(res) {
+            register_code(KC_LSFT);
+            res = vi_mode_common(keycode, record) && ismod;
+            unregister_code(KC_LSFT);
+        }
     } else if (current_mode == MODE_NORMAL || normal_mode_held) {
-        return vi_mode_normal(keycode, record) && vi_mode_common(keycode, record) && false;
-    } else {
-        return true;
+        res = vi_mode_normal(keycode, record) && vi_mode_common(keycode, record) && ismod;
     }
+
+end:
+    set_mods(mods);
+    return res;
 }
